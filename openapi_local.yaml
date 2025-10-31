@@ -1,0 +1,79 @@
+openapi: 3.0.3
+MJPrompt:
+type: object
+required: [id, prompt, ar]
+properties:
+id: { type: string }
+prompt: { type: string }
+ar: { type: string, example: '16:9' }
+notes:
+type: object
+additionalProperties: true
+ComposeStillsResponse:
+type: object
+required: [stills]
+properties:
+stills:
+type: array
+items:
+$ref: '#/components/schemas/MJPrompt'
+ExpandSceneRequest:
+type: object
+required: [brief, selection]
+properties:
+brief: { type: string }
+selection:
+$ref: '#/components/schemas/Concept'
+image_url: { type: string, nullable: true }
+TimelineBeat:
+type: object
+required: [t, beat, intensity]
+properties:
+t: { type: number }
+beat: { type: string }
+intensity: { type: number, minimum: 0, maximum: 1 }
+SceneDraft:
+type: object
+required: [st, ds, dw, timeline, drafts]
+properties:
+st: { type: object, additionalProperties: true }
+ds: { type: object, additionalProperties: true }
+dw: { type: object, additionalProperties: true }
+timeline:
+type: array
+items: { $ref: '#/components/schemas/TimelineBeat' }
+drafts:
+type: object
+additionalProperties: { type: string }
+ExpandSceneResponse:
+type: object
+required: [scene]
+properties:
+scene: { $ref: '#/components/schemas/SceneDraft' }
+QAValidateRequest:
+type: object
+required: [scene]
+properties:
+scene: { $ref: '#/components/schemas/SceneDraft' }
+engine:
+type: string
+enum: [SORA, VEO]
+default: SORA
+QAReport:
+type: object
+required: [story_match_score, coverage_score, conflicts, severity]
+properties:
+story_match_score: { type: number }
+coverage_score: { type: number }
+conflicts:
+type: array
+items: { type: string }
+severity:
+type: string
+enum: [info, warn, fail]
+QAValidateResponse:
+type: object
+required: [engine_render, report]
+properties:
+engine_render: { type: string }
+report: { $ref: '#/components/schemas/QAReport' }

@@ -1,0 +1,85 @@
+### 0) Health
+GET http://localhost:8000/health
+
+### Set (여기 두 줄만 상황에 맞게 바꾸면 됨)
+@host = http://localhost:8000    # Railway 배포 후엔 https://<your-app>.up.railway.app 로 바꾸기
+@token = REPLACE_YOUR_ACTIONS_BEARER
+
+### 1) Derive concepts
+POST {{host}}/derive-concepts
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "album_info": {
+    "title": "Hand Warmer",
+    "style": "indie pop, night",
+    "lyrics": "you pass the heat to me under neon"
+  }
+}
+
+### 2) Compose stills
+POST {{host}}/compose-stills
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "selection": {
+    "id": "hand-warmer-a",
+    "title": "Hand Warmer — A",
+    "logline": "intimate, handheld realism",
+    "style": "indie pop, night",
+    "cast": ["lead (20s)", "friend (20s)"],
+    "anchors": {
+      "palette": ["muted teal", "burnt orange", "warm cream", "faded denim"],
+      "lighting": ["sodium-vapor key", "cool fill", "neon rim"],
+      "props": ["phone", "jacket", "hot pack"]
+    },
+    "storyline": "Meet-cute to parting micro-journey"
+  },
+  "count": 3
+}
+
+### 3) Expand scene
+POST {{host}}/expand-scene
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "brief": "hot pack handoff",
+  "selection": {
+    "id": "hand-warmer-a",
+    "title": "Hand Warmer — A",
+    "logline": "intimate, handheld realism",
+    "style": "indie pop, night",
+    "cast": ["lead (20s)", "friend (20s)"],
+    "anchors": {
+      "palette": ["muted teal", "burnt orange", "warm cream", "faded denim"],
+      "lighting": ["sodium-vapor key", "cool fill", "neon rim"],
+      "props": ["phone", "jacket", "hot pack"]
+    },
+    "storyline": "Meet-cute to parting micro-journey"
+  }
+}
+
+### 4) QA validate
+POST {{host}}/qa-validate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "engine": "SORA",
+  "scene": {
+    "st": {"ar": "16:9", "framing": "medium shot, eye-level", "lens_mm": 85, "dof": "shallow", "base_lighting": ["warm key","cool fill","rim"]},
+    "ds": {"primary_action": "hot pack handoff", "camera_move": "slow push-in", "focus_transition": "rack to hands then back to eyes", "lighting_event": "subtle warm shift at contact"},
+    "dw": {"micro_vfx": "soft breath", "ambient": "light crowd bokeh wobble"},
+    "timeline": [
+      {"t": 0.0, "beat": "hold eye contact", "intensity": 0.3},
+      {"t": 0.8, "beat": "hands rise", "intensity": 0.5},
+      {"t": 1.4, "beat": "handoff contact", "intensity": 0.9},
+      {"t": 2.0, "beat": "settle", "intensity": 0.6},
+      {"t": 2.6, "beat": "exhale", "intensity": 0.4}
+    ],
+    "drafts": {"sora": "...", "veo": "..."}
+  }
+}
