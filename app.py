@@ -17,6 +17,8 @@ from pydantic import BaseModel, Field
 
 from fastapi import Request
 
+from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
+
 # -----------------------------
 # Boot
 # -----------------------------
@@ -41,7 +43,7 @@ def require_bearer(credentials: HTTPAuthorizationCredentials = Security(security
 # -----------------------------
 allowlist = [o.strip() for o in os.getenv("CORS_ALLOWLIST", "https://chat.openai.com").split(",") if o.strip()]
 
-app = FastAPI(title=APP_NAME, version="0.3.1a")
+app = FastAPI(title=APP_NAME, version="0.3.1a", openapi_url="/_openapi.json")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowlist,
@@ -50,19 +52,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+app.add_middleware(ProxyHeadersMiddleware)
 def custom_openapi():
-    if app.openapi_schema:
-        return app.openapi_schema
-    openapi_schema = get_openapi(
+    app.openapi_schema = None
+    schema = get_openapi(
         title=APP_NAME,
         version="0.3.1a",
         routes=app.routes,
     )
-    openapi_schema["servers"] = [
-        {"url": "https://avg-production.up.railway.app/", "description": "Production (Railway)"},
+    prod = os.getenv("PUBLIC_BASE_URL", "https://avg-production.up.railway.app/").rstrip("/") + "/"
+    schema["servers"] = [
+        {"url": prod, "description": "Production (Railway)"},
         {"url": "http://localhost:8000/", "description": "Local dev"},
     ]
-    app.openapi_schema = openapi_schema
+    app.openapi_schema = schema
     return app.openapi_schema
 
 app.openapi = custom_openapi
