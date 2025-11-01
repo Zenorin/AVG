@@ -478,3 +478,23 @@ async def _not_found_handler(request: Request, exc: StarletteHTTPException):
         },
     )
 
+
+
+# ---- Diagnostic routes (temporary, guarded) ----
+def _diag_enabled_env():
+    return os.getenv("ENABLE_DIAG","0")=="1"
+
+def _diag_enabled_request(request: Request):
+    qp = request.query_params.get("diag") or request.query_params.get("__diag")
+    return (request.headers.get("X-Diag")=="1" or (qp and qp.lower() in ("1","true","yes")))
+
+@app.get("/__routes_open", include_in_schema=False)
+def __routes_open(request: Request):
+    if not (_diag_enabled_env() or _diag_enabled_request(request)):
+        raise HTTPException(status_code=404, detail="Not Found")
+    out=[]
+    for r in app.routes:
+        if isinstance(r, APIRoute):
+            out.append({"path": r.path, "methods": sorted(list(r.methods)), "name": r.name})
+    return {"routes": out, "app": APP_NAME, "version": "0.3.1a"}
+
