@@ -63,7 +63,7 @@ def custom_openapi():
             {"url": "http://localhost:8000/", "description": "Local dev"},
         ]
     schema["servers"] = servers
-    schema["openapi"] = "3.0.3"
+    schema["openapi"]="3.1.0"
     app.openapi_schema = schema
     return app.openapi_schema
 
