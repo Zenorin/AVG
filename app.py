@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.openapi.utils import get_openapi
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 # ---- 모든 데이터 모델은 models.py에서만 정의하고 여기서는 임포트만 ----
 from models import (
@@ -67,6 +68,8 @@ def custom_openapi():
     return app.openapi_schema
 
 
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -78,7 +81,7 @@ app.add_middleware(
 # -----------------------------
 # Endpoints
 # -----------------------------
-@app.get("/health", operation_id="getHealth")
+@app.get("/health", summary="Health", operation_id="getHealth")
 def health():
     return {"ok": True, "name": APP_NAME, "version": "0.3.1a"}
 
@@ -355,3 +358,27 @@ def _lighting_for_style(text: str):
     if "noir" in t:
         return ["hard key", "low fill", "edge rim"]
     return ["soft key", "gentle fill", "rim"]
+
+@app.api_route("/__diag", methods=["GET","POST","HEAD","OPTIONS"], include_in_schema=False)
+async def __diag(request: Request):
+    return JSONResponse({
+        "method": request.method,
+        "url": str(request.url),
+        "headers": {k:v for k,v in request.headers.items() if k.lower() in ["host","user-agent","authorization","content-type"]},
+        "note": "Use this to see what the connector actually sends."
+    })
+
+
+# ---- Privacy aliases (connector safety nets) ----
+@app.get("/privacy_privacy_get", include_in_schema=False)
+def privacy_legacy_opid_alias():
+    return privacy()
+
+@app.get("/privacy/", include_in_schema=False)
+def privacy_slash_alias():
+    return privacy()
+
+@app.head("/privacy", include_in_schema=False)
+def privacy_head():
+    return JSONResponse({"ok": True})
+
