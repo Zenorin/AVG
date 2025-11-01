@@ -2,8 +2,8 @@
 GET http://localhost:8000/health
 
 ### Set (여기 두 줄만 상황에 맞게 바꾸면 됨)
-@host = http://localhost:8000    # Railway 배포 후엔 https://<your-app>.up.railway.app 로 바꾸기
-@token = REPLACE_YOUR_ACTIONS_BEARER
+@host = https://avg-production.up.railway.app
+@token = 1234qwerasdfzxcv
 
 ### 1) Derive concepts
 POST {{host}}/derive-concepts
