@@ -10,15 +10,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.openapi.utils import get_openapi
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 import logging
 
 from pydantic import BaseModel, Field
 
 from fastapi import Request
-
-from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
-
 # -----------------------------
 # Boot
 # -----------------------------
