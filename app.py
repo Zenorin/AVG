@@ -1,13 +1,26 @@
 import os
 import re
-import math
 import json
 from typing import List, Optional, Literal, Dict, Any
+from fastapi.responses import JSONResponse
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
+import logging
+
 from pydantic import BaseModel, Field
+
+from fastapi import Request
+
+# -----------------------------
+# Boot
+# -----------------------------
+load_dotenv()
 
 APP_NAME = "DirectorOS Actions API (v0.3.1a)"
 security = HTTPBearer(auto_error=True)
@@ -15,7 +28,6 @@ security = HTTPBearer(auto_error=True)
 # -----------------------------
 # Auth dependency (Bearer)
 # -----------------------------
-
 def require_bearer(credentials: HTTPAuthorizationCredentials = Security(security)):
     expected = os.getenv("ACTIONS_BEARER", "").strip()
     if not expected:
@@ -25,10 +37,10 @@ def require_bearer(credentials: HTTPAuthorizationCredentials = Security(security
     return True
 
 # -----------------------------
-# CORS
+# FastAPI & CORS
 # -----------------------------
-
 allowlist = [o.strip() for o in os.getenv("CORS_ALLOWLIST", "https://chat.openai.com").split(",") if o.strip()]
+
 app = FastAPI(title=APP_NAME, version="0.3.1a")
 app.add_middleware(
     CORSMiddleware,
@@ -38,17 +50,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=APP_NAME,
+        version="0.3.1a",
+        routes=app.routes,
+    )
+    openapi_schema["servers"] = [
+        {"url": "https://avg-production.up.railway.app/", "description": "Production (Railway)"},
+        {"url": "http://localhost:8000/", "description": "Local dev"},
+    ]
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
+
 # -----------------------------
 # Data models
 # -----------------------------
-
 class AlbumInfo(BaseModel):
     title: str
     style: str
     lyrics: str
 
+class Controls(BaseModel):
+    variants: int = Field(default=3, ge=1, le=6)
+    palette_override: Optional[List[str]] = None
+    lighting_override: Optional[List[str]] = None
+
 class DeriveConceptsRequest(BaseModel):
     album_info: AlbumInfo
+    controls: Optional[Controls] = None
 
 class Concept(BaseModel):
     id: str
@@ -79,6 +113,8 @@ class ExpandSceneRequest(BaseModel):
     brief: str
     selection: Concept
     image_url: Optional[str] = None
+    duration_sec: float = 3.0
+    beats: int = Field(default=5, ge=1, le=12)
 
 class TimelineBeat(BaseModel):
     t: float  # seconds
@@ -110,67 +146,77 @@ class QAValidateResponse(BaseModel):
     report: QAReport
 
 # -----------------------------
-# Utilities (heuristics, deterministic)
+# Utilities
 # -----------------------------
-
 PALETTES = {
     "indie": ["muted teal", "burnt orange", "warm cream", "faded denim"],
     "pop": ["neon pink", "electric blue", "citrus yellow", "white"],
     "rock": ["charcoal", "crimson", "steel blue", "amber"],
     "lofi": ["soft beige", "sage", "dusty rose", "slate"],
+    "city pop": ["aqua", "coral", "lemon", "white"],
+    "winter": ["soft beige", "sage", "dusty rose", "slate"],
 }
-
 LIGHTING_BANK = {
     "day": ["soft key from window", "gentle fill", "subtle rim"],
     "night": ["sodium-vapor key", "cool fill", "neon rim"],
+    "dusk": ["warm low sun", "soft fill", "edge rim"],
 }
-
 DEFLT_LENS = 50
 
-
-def _pick_palette(style: str) -> List[str]:
-    style_key = style.lower()
+def _pick_palette(text: str) -> List[str]:
+    s = text.lower()
     for k, v in PALETTES.items():
-        if k in style_key:
+        if k in s:
             return v
     return ["neutral gray", "soft white", "warm amber"]
 
-
-def _lighting_for_style(style: str) -> List[str]:
-    if any(w in style.lower() for w in ["night", "noir"]):
+def _lighting_for_style(text: str) -> List[str]:
+    s = text.lower()
+    if any(w in s for w in ["night", "neon"]):
         return LIGHTING_BANK["night"]
+    if any(w in s for w in ["dusk", "sunset", "twilight"]):
+        return LIGHTING_BANK["dusk"]
     return LIGHTING_BANK["day"]
-
 
 def _slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
 
-
 # -----------------------------
 # Endpoints
 # -----------------------------
-
 @app.get("/health")
 def health():
-    return {"ok": True, "name": APP_NAME}
+    return {"ok": True, "name": APP_NAME, "version": "0.3.1a"}
 
+@app.get("/privacy")
+def privacy():
+    return FileResponse("privacy.html", media_type="text/html")
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/docs")
 
 @app.post("/derive-concepts", response_model=DeriveConceptsResponse)
 def derive_concepts(payload: DeriveConceptsRequest, _: bool = Security(require_bearer)):
     info = payload.album_info
-    palette = _pick_palette(info.style)
-    lighting = _lighting_for_style(info.style)
+    controls = payload.controls or Controls()
+
+    text = f"{info.style} {info.lyrics}"
+    palette = controls.palette_override or _pick_palette(text)
+    lighting = controls.lighting_override or _lighting_for_style(text)
 
     base_id = _slug(info.title or "concept")
     concepts: List[Concept] = []
 
-    variants = [
+    base_variants = [
         ("A", "intimate, handheld realism"),
         ("B", "stylized, composed frames"),
         ("C", "kinetic, rhythmic cutting"),
+        ("D", "graphic, silhouette-driven"),
+        ("E", "dreamy, soft diffusion"),
+        ("F", "contrasty, neon noir"),
     ]
-
-    for code, flavor in variants:
+    for code, flavor in base_variants[:controls.variants]:
         concepts.append(
             Concept(
                 id=f"{base_id}-{code.lower()}",
@@ -189,7 +235,6 @@ def derive_concepts(payload: DeriveConceptsRequest, _: bool = Security(require_b
 
     return DeriveConceptsResponse(concepts=concepts)
 
-
 @app.post("/compose-stills", response_model=ComposeStillsResponse)
 def compose_stills(payload: ComposeStillsRequest, _: bool = Security(require_bearer)):
     sel = payload.selection
@@ -207,7 +252,6 @@ def compose_stills(payload: ComposeStillsRequest, _: bool = Security(require_bea
     stills: List[MJPrompt] = []
     for i in range(min(count, len(frames))):
         label, lens, dof, move = frames[i]
-        # MJ prompt; Sora-aligned anchors for palette/lighting
         prompt = (
             f"{label}, {sel.style} look, natural skin texture, {dof}, {lens}, one camera move: {move}; "
             f"palette: {', '.join(sel.anchors.get('palette', []))}; lighting: {', '.join(sel.anchors.get('lighting', []))}; "
@@ -224,11 +268,11 @@ def compose_stills(payload: ComposeStillsRequest, _: bool = Security(require_bea
 
     return ComposeStillsResponse(stills=stills)
 
-
 @app.post("/expand-scene", response_model=ExpandSceneResponse)
 def expand_scene(payload: ExpandSceneRequest, _: bool = Security(require_bearer)):
-    brief = payload.brief.strip()
     sel = payload.selection
+    duration = float(payload.duration_sec)
+    beats_n = int(payload.beats)
 
     # ST: static foundations
     st = {
@@ -242,9 +286,9 @@ def expand_scene(payload: ExpandSceneRequest, _: bool = Security(require_bearer)
     # DS: dynamic-strong (single primary action + one camera move)
     ds = {
         "primary_action": "hot pack handoff (one clean beat)",
-        "camera_move": "slow push-in",  # exactly one camera move
+        "camera_move": "slow push-in",
         "focus_transition": "rack to hands then back to eyes",
-        "lighting_event": "subtle warm shift at contact (DS7)"
+        "lighting_event": "subtle warm shift at contact (DS7)",
     }
 
     # DW: dynamic-weak (ambient)
@@ -253,34 +297,42 @@ def expand_scene(payload: ExpandSceneRequest, _: bool = Security(require_bearer)
         "ambient": "light crowd bokeh wobble",
     }
 
-    # Timeline (beats / seconds / intensity)
-    timeline = [
-        TimelineBeat(t=0.0, beat="hold eye contact", intensity=0.3),
-        TimelineBeat(t=0.8, beat="hands rise", intensity=0.5),
-        TimelineBeat(t=1.4, beat="handoff contact", intensity=0.9),
-        TimelineBeat(t=2.0, beat="settle (grip ~0.2s)", intensity=0.6),
-        TimelineBeat(t=2.6, beat="micro smile + exhale", intensity=0.4),
+    # 기본 비트 텍스트
+    base_beats = [
+        "hold eye contact",
+        "hands rise",
+        "handoff contact",
+        "settle (grip ~0.2s)",
+        "micro smile + exhale",
     ]
+    beats_txt = base_beats[:beats_n] if beats_n <= len(base_beats) else base_beats + [f"beat {i}" for i in range(len(base_beats)+1, beats_n+1)]
 
-    # Drafts (not for direct user display by GPT; EngineRender will be produced after QA)
+    # 타임라인: 균등 분할
+    timeline: List[TimelineBeat] = []
+    for i, bt in enumerate(beats_txt):
+        t = 0.0 if beats_n == 1 else (duration * i / (beats_n - 1))
+        intensity_seq = [0.3, 0.5, 0.9, 0.6, 0.4]
+        intensity = float(intensity_seq[i] if i < len(intensity_seq) else 0.5)
+        timeline.append(TimelineBeat(t=round(t, 2), beat=bt, intensity=intensity))
+
+    # 타임라인 문자열
+    timeline_str = ", ".join([f"{b.t:.1f}s {b.beat}" for b in timeline])
+
     sora_draft = (
         "medium shot, eye-level, 85mm, shallow DOF; one camera move: slow push-in; subject: two 20s friends; "
-        "background: winter street evening; action: hot pack handoff in a single beat; lighting: warm key, cool fill, rim; "
-        "palette: " + ", ".join(sel.anchors.get("palette", [])) + "; timeline: 0.0 hold, 0.8 rise, 1.4 contact, 2.0 settle, 2.6 exhale; "
+        "background: winter street evening; action: hot pack handoff in a single beat; "
+        f"palette: {', '.join(sel.anchors.get('palette', []))}; "
+        f"timeline: {timeline_str}; "
         "positives only; no clones; no watermark;"
     )
     veo_draft = sora_draft.replace("winter street evening", "city plaza dusk")
 
-    scene = SceneDraft(
-        st=st, ds=ds, dw=dw, timeline=timeline, drafts={"sora": sora_draft, "veo": veo_draft}
-    )
+    scene = SceneDraft(st=st, ds=ds, dw=dw, timeline=timeline, drafts={"sora": sora_draft, "veo": veo_draft})
     return ExpandSceneResponse(scene=scene)
-
 
 # -----------------------------
 # QA & Finalization
 # -----------------------------
-
 HARD_CONFLICTS = {
     "ar_lock_missing": "Missing AR 16:9 lock",
     "multi_camera_moves": "Multiple camera moves detected",
@@ -290,14 +342,12 @@ HARD_CONFLICTS = {
     "digital_crop": "DigitalCropInShot > 10%",
 }
 
-
 def _keyword_score(brief: str, draft: str) -> float:
     words = set(re.findall(r"[a-zA-Z]+", brief.lower()))
     if not words:
         return 0.7
     hits = sum(1 for w in words if w in draft.lower())
     return min(1.0, 0.5 + 0.5 * (hits / max(1, len(words))))
-
 
 def _coverage_score(scene: SceneDraft) -> float:
     have = 0
@@ -310,47 +360,35 @@ def _coverage_score(scene: SceneDraft) -> float:
     have += 1 if scene.dw.get("micro_vfx") else 0
     return have / total
 
-
 def _detect_conflicts(scene: SceneDraft) -> List[str]:
     conflicts = []
-    # AR lock
     if scene.st.get("ar") != "16:9":
         conflicts.append(HARD_CONFLICTS["ar_lock_missing"])
 
-    # camera moves
     cm = scene.ds.get("camera_move", "")
     if any(k in cm for k in ["&", ",", "+"]):
         conflicts.append(HARD_CONFLICTS["multi_camera_moves"])
 
-    # Weather↔VFX double-strong (heuristic: if micro_vfx mentions rain/snow + lighting_event mentions flash/strobe)
     if re.search(r"rain|snow|storm", json.dumps(scene.dw), re.I) and re.search(r"flash|strobe|intense", json.dumps(scene.ds), re.I):
         conflicts.append(HARD_CONFLICTS["weather_vfx_double_strong"])
 
-    # Penetration limit (not modeled → assume within bounds unless payload flags it)
     if scene.ds.get("penetration_mm", 0) and scene.ds.get("penetration_mm", 0) > 2.0:
         conflicts.append(HARD_CONFLICTS["penetration_limit"])
 
-    # Focal lock
     if not isinstance(scene.st.get("lens_mm"), (int, float)):
         conflicts.append(HARD_CONFLICTS["focal_not_locked"])
 
-    # Digital crop (if provided)
     if scene.st.get("digital_crop_pct") and scene.st.get("digital_crop_pct") > 10:
         conflicts.append(HARD_CONFLICTS["digital_crop"])
 
     return conflicts
 
-
 def _severity(story_match: float, coverage: float, conflicts: List[str]) -> Literal["info", "warn", "fail"]:
-    # Threshold policy (fail if story_match<0.60 or coverage<0.70 or any hard conflict)
     if story_match < 0.60 or coverage < 0.70 or conflicts:
-        # If conflicts exist, treat as fail (hard conflicts)
         return "fail"
-    # Minor imperfections
     if story_match < 0.8 or coverage < 0.85:
         return "warn"
     return "info"
-
 
 def _render_engine_block(engine: str, scene: SceneDraft) -> str:
     header = f"[BEGIN EngineRender {engine}]"
@@ -359,12 +397,11 @@ def _render_engine_block(engine: str, scene: SceneDraft) -> str:
         f"framing: {scene.st.get('framing')}; lens: {scene.st.get('lens_mm')}mm; DOF: {scene.st.get('dof')}; AR: {scene.st.get('ar')}\n"
         f"subject: two friends (20s), key prop: hot pack; background: winter street evening\n"
         f"action: {scene.ds.get('primary_action')} (one beat); camera_move: {scene.ds.get('camera_move')}\n"
-        f"timeline: " + ", ".join([f"{b.t:.1f}s {b.beat}" for b in scene.timeline]) + "\n"
+        f"timeline: {', '.join([f'{b.t:.1f}s {b.beat}' for b in scene.timeline])}\n"
         f"lighting: " + ", ".join(scene.st.get('base_lighting', [])) + ". palette: muted warm neutrals.\n"
         f"safety: no clones; no watermark; penetration ≤ 0.2 cm; single camera move; focal locked.\n"
     )
     return "\n".join([header, body, footer])
-
 
 @app.post("/qa-validate", response_model=QAValidateResponse)
 def qa_validate(payload: QAValidateRequest, _: bool = Security(require_bearer)):
@@ -389,3 +426,11 @@ def qa_validate(payload: QAValidateRequest, _: bool = Security(require_bearer)):
     )
 
     return QAValidateResponse(engine_render=engine_render, report=report)
+
+@app.get("/openapi.json", include_in_schema=False)
+def serve_openapi_json():
+    return JSONResponse(custom_openapi())
+
+@app.get("/openapi.yaml", include_in_schema=False)
+def serve_openapi_yaml():
+    return FileResponse("openapi_local.yaml", media_type="application/yaml")
