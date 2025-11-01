@@ -441,3 +441,40 @@ class _ReqIdMW(BaseHTTPMiddleware):
         resp.headers["X-Req-Id"] = rid
         return resp
 app.add_middleware(_ReqIdMW)
+
+
+# ---- Compatibility aliases for quirky connectors ----
+try:
+    app.add_api_route("/health_health_get", health, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/privacy_privacy_get", privacy, methods=["GET"], include_in_schema=False)
+except Exception:
+    pass
+# POST opId-style fallbacks
+try:
+    app.add_api_route("/derive_concepts_derive_concepts_post", derive_concepts, methods=["POST"], include_in_schema=False)
+    app.add_api_route("/compose_stills_compose_stills_post", compose_stills, methods=["POST"], include_in_schema=False)
+    app.add_api_route("/expand_scene_expand_scene_post", expand_scene, methods=["POST"], include_in_schema=False)
+    app.add_api_route("/qa_validate_qa_validate_post", qa_validate, methods=["POST"], include_in_schema=False)
+except Exception:
+    pass
+
+
+
+from fastapi.requests import Request
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+@app.exception_handler(StarletteHTTPException)
+async def _not_found_handler(request: Request, exc: StarletteHTTPException):
+    if exc.status_code != 404:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return JSONResponse(
+        status_code=404,
+        content={
+            "detail": "Not Found",
+            "method": request.method,
+            "path": request.url.path,
+            "hint": "Check OpenAPI servers[] and operationId mapping; try /health, /getHealth, /healthz"
+        },
+    )
+
