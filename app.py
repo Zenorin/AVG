@@ -382,3 +382,42 @@ def privacy_slash_alias():
 def privacy_head():
     return JSONResponse({"ok": True})
 
+
+
+# =======================
+# Connector safety nets
+# =======================
+from fastapi.routing import APIRoute
+
+# 목록/진단 (prod에서도 일시적으로 열어 두고, 확인 후 닫아도 됨)
+@app.get("/__routes", include_in_schema=False)
+def __routes():
+    out=[]
+    for r in app.routes:
+        if isinstance(r, APIRoute):
+            out.append({"path": r.path, "methods": sorted(list(r.methods)), "name": r.name})
+    return {"routes": out, "app": APP_NAME, "version": "0.3.1a"}
+
+# Health alias(들)
+try:
+    app.add_api_route("/getHealth", health, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/healthz", health, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/health/", health, methods=["GET"], include_in_schema=False)
+except Exception:
+    pass
+
+# Privacy alias(들)
+try:
+    app.add_api_route("/getPrivacy", privacy, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/privacy/", privacy, methods=["GET"], include_in_schema=False)
+except Exception:
+    pass
+
+# Snake_case ↔ kebab-case POST alias(들)
+try:
+    app.add_api_route("/derive_concepts", derive_concepts, methods=["POST"], include_in_schema=False)
+    app.add_api_route("/compose_stills", compose_stills, methods=["POST"], include_in_schema=False)
+    app.add_api_route("/expand_scene", expand_scene, methods=["POST"], include_in_schema=False)
+    app.add_api_route("/qa_validate", qa_validate, methods=["POST"], include_in_schema=False)
+except Exception:
+    pass
