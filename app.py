@@ -70,9 +70,7 @@ def custom_openapi():
 
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
+app.add_middleware(CORSMiddleware, allow_origins=allowlist,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -421,3 +419,25 @@ try:
     app.add_api_route("/qa_validate", qa_validate, methods=["POST"], include_in_schema=False)
 except Exception:
     pass
+
+# ---- Guard diagnostics ----
+def _diag_enabled():
+    return os.getenv("ENABLE_DIAG","0")=="1"
+
+from fastapi import HTTPException
+if "def __routes()" in globals():
+    _orig___routes = __routes
+    def __routes():
+        if not _diag_enabled():
+            raise HTTPException(status_code=404, detail="Not Found")
+        return _orig___routes()
+
+import uuid
+from starlette.middleware.base import BaseHTTPMiddleware
+class _ReqIdMW(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        rid = request.headers.get("X-Req-Id") or uuid.uuid4().hex[:16]
+        resp = await call_next(request)
+        resp.headers["X-Req-Id"] = rid
+        return resp
+app.add_middleware(_ReqIdMW)
