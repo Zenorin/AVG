@@ -26,7 +26,7 @@ from models import (
 load_dotenv()
 
 APP_NAME = "DirectorOS Actions API (v0.3.1a)"
-security = HTTPBearer(auto_error=True)
+security = HTTPBearer(auto_error=False)
 
 # -----------------------------
 # Auth dependency (Bearer)
@@ -36,7 +36,7 @@ def require_bearer(credentials: HTTPAuthorizationCredentials = Security(security
     if not expected:
         raise HTTPException(status_code=500, detail="Server misconfigured: ACTIONS_BEARER not set")
     if credentials is None or credentials.credentials != expected:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail="Unauthorized", headers={"WWW-Authenticate": "Bearer"})
     return True
 
 # -----------------------------
